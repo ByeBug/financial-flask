@@ -76,7 +76,6 @@ def search_company():
 @bp.route('/baseinfo')
 def baseinfo():
     c_id = request.args.get('c_id')
-    cursor = get_db().cursor()
 
     result = {
         'error': '',
@@ -94,6 +93,8 @@ def baseinfo():
     }
 
     if c_id:
+        cursor = get_db().cursor()
+
         sql = """
         select `name`, a_name, estab_time, money, legal_name, reg_address, logo
         from c_client
@@ -134,31 +135,32 @@ def baseinfo():
 
         else:
             result['error'] = 'No such firm'
+        
+        cursor.close()
     else:
         result['error'] = 'Need c_id'
-    
-    cursor.close()
 
     return jsonify(result)
 
 @bp.route('/holders')
 def holders():
     c_id = request.args.get('c_id')
-    cursor = get_db().cursor()
 
     result = {
         'error': '',
         'name': '',
         'type': '',
-        'holder': '',
+        'holder': {},
         'act_control': '',
-        'holders': ''
+        'holders': []
     }
     holders = []
 
     if c_id:
+        cursor = get_db().cursor()
+        
         sql = """
-        select name, enterprise_type, act_contr_id, a_code from c_client
+        select name, enterprise_type, act_contr_id, is_listed from c_client
         where c_id = %s
         """
         cursor.execute(sql, (c_id, ))
@@ -167,8 +169,8 @@ def holders():
             result['name'] = q[0]
             result['type'] = q[1]
             result['act_control'] = q[2]
-            code = q[3] or ''
-            if re.search(r'\d{6}', code):
+            is_listed = q[3]
+            if is_listed:
                 # 上市公司
                 sql = """
                 SELECT shaholder_name, rate FROM c_top_shaholder
@@ -192,16 +194,16 @@ def holders():
                 cursor.execute(sql, (c_id, ))
                 for i in cursor.fetchall():
                     holders.append({'name': i[0], 'rate': i[1]})
-
+            
             result['holders'] = holders
             result['holder'] = holders[0]
 
         else:
             result['error'] = 'No such firm'
+        
+        cursor.close()
     else:
         result['error'] = 'need c_id'
-
-    cursor.close()
 
     return jsonify(result)
 
@@ -209,42 +211,70 @@ def holders():
 @bp.route('/firmgraph_holders')
 def firmgraph_holders():
     def get_holders(c_id, cursor):
-        sql_holders = """
-        (select shaholder_id, shaholder_name, invest_rate as rate from c_shaholder where c_id=%s)
-        UNION
-        (select shaholder_id, shaholder_name, rate as rate from c_top_shaholder where c_id=%s
-        AND deadline = (SELECT MAX(deadline) FROM c_top_shaholder WHERE c_id = %s)
-        )
-        order by convert(rate, decimal(5,2)) desc
-        """
-        cursor.execute(sql_holders, (c_id, c_id, c_id))
-        q = cursor.fetchall()
+        holders = []
 
-        return q
+        sql = """select is_listed from c_client where c_id = %s"""
+        cursor.execute(sql, (c_id,))
+        q = cursor.fetchone()
+        if q:
+            if q[0]:
+                # 上市公司
+                sql = """select shaholder_name, `rate` from c_top_shaholder where c_id = %s
+                AND deadline = (SELECT MAX(deadline) FROM c_top_shaholder WHERE c_id = %s)
+                order by convert(rate, decimal(5,2)) desc"""
+                cursor.execute(sql, (c_id, c_id))
+                q = cursor.fetchall()
+                for i in q:
+                    holder = {
+                        'code': '',
+                        'name': i[0],
+                        'rate': i[1]
+                    }
+                    sql = """select c_id from c_client where `name` = %s"""
+                    cursor.execute(sql, (i[0]))
+                    temp_q = cursor.fetchone()
+                    if temp_q:
+                        holder['code'] = temp_q[0]
+                    
+                    holders.append(holder)
+                
+                return holders
+            else:
+                # 非上市公司
+                sql = """select shaholder_id, shaholder_name, invest_rate as rate 
+                from c_shaholder where c_id = %s
+                order by convert(rate, decimal(5,2)) desc"""
+                cursor.execute(sql, (c_id, ))
+                q = cursor.fetchall()
+                for i in q:
+                    holder = {
+                        'code': i[0],
+                        'name': i[1],
+                        'rate': i[2]
+                    }
+                    holders.append(holder)
+                
+                return holders
+        else:
+            return []
+
 
     c_id = request.args.get('c_id')
-    cursor = get_db().cursor()
-
+    
     result = {
         'error': '',
-        'holders': ''
+        'holders': []
     }
 
-    holders = []
     if c_id:
-        q = get_holders(c_id, cursor)
-        for i in q:
-            holders.append({
-                'code': i[0],
-                'name': i[1],
-                'rate': i[2]
-            })
-    else:
-        result['error'] = 'Need c_id or name'
-    
-    result['holders'] = holders
+        cursor = get_db().cursor()
 
-    cursor.close()
+        holders = get_holders(c_id, cursor)
+        result['holders'] = holders
+        
+        cursor.close()
+    else:
+        result['error'] = 'Need c_id'
 
     return jsonify(result)
         
@@ -252,37 +282,41 @@ def firmgraph_holders():
 @bp.route('/firmgraph_investments')
 def firmgraph_investments():
     def get_investments(c_id, cursor):
+        investments = []
+
         sql_investments = """
-        select i_id, name, rate from c_investment where c_id=%s
+        select i_id, `name`, rate from c_investment where c_id = %s
         """
         cursor.execute(sql_investments, (c_id, ))
         q = cursor.fetchall()
-
-        return q
-
-    c_id = request.args.get('c_id')
-    cursor = get_db().cursor()
-
-    result = {
-        'error': '',
-        'investments': ''
-    }
-
-    investments = []
-    if c_id:
-        q = get_investments(c_id, cursor)
         for i in q:
-            investments.append({
+            investment = {
                 'code': i[0],
                 'name': i[1],
                 'rate': i[2]
-            })
+            }
+
+            investments.append(investment)
+
+        return investments
+
+
+    c_id = request.args.get('c_id')
+
+    result = {
+        'error': '',
+        'investments': []
+    }
+
+    if c_id:
+        cursor = get_db().cursor()
+
+        investments = get_investments(c_id, cursor)
+        result['investments'] = investments
+        
+        cursor.close()
     else:
         result['error'] = 'Need c_id'
-
-    result['investments'] = investments
-
-    cursor.close()
 
     return jsonify(result)
 
@@ -290,15 +324,16 @@ def firmgraph_investments():
 @bp.route('/managers')
 def managers():
     c_id = request.args.get('c_id')
-    cursor = get_db().cursor()
 
     result = {
         'error': '',
-        'managers': ''
+        'managers': []
     }
     managers = []
 
     if c_id:
+        cursor = get_db().cursor()
+
         sql = """
         select c.e_name, c.post, e.abstract
         from client_executive as c
@@ -312,12 +347,12 @@ def managers():
                 'post': i[1],
                 'abstract': i[2]
             })
+        
+        result['managers'] = managers
+
+        cursor.close()
     else:
         result['error'] = 'Need c_id'
-
-    result['managers'] = managers
-
-    cursor.close()
 
     return jsonify(result)
 
@@ -325,15 +360,16 @@ def managers():
 @bp.route('/changeinfo')
 def changeinfo():
     c_id = request.args.get('c_id')
-    cursor = get_db().cursor()
 
     result = {
         'error': '',
-        'changeinfos': ''
+        'changeinfos': []
     }
     changeinfos = []
 
     if c_id:
+        cursor = get_db().cursor()
+
         sql = """
         select `time`, `item`, `before`, `after`
         from c_changeinfo where c_id=%s"""
@@ -345,12 +381,12 @@ def changeinfo():
                 'before': i[2],
                 'after': i[3],
             })
+        
+        result['changeinfos'] = changeinfos
+
+        cursor.close()
     else:
         result['error'] = 'Need c_id'
-
-    result['changeinfos'] = changeinfos
-
-    cursor.close()
 
     return jsonify(result)
 
@@ -358,7 +394,6 @@ def changeinfo():
 @bp.route('/business')
 def business():
     c_id = request.args.get('c_id')
-    cursor = get_db().cursor()
 
     result = {
         'error': '',
@@ -367,13 +402,15 @@ def business():
         'operate_rev_YOY': '',
         'profit': '',
         'profit_YOY': '',
-        'key_business_3_year': '',
-        'key_business_last': ''
+        'key_business_3_year': [],
+        'key_business_last': []
     }
 
     key_business_3_year = []
     key_business_last = []
     if c_id:
+        cursor = get_db().cursor()
+
         # XX年，营业额，同比，利润总额，同比
         sql = """
         select report_date, tot_operate_rev, sum_profit from fin_income
@@ -423,20 +460,19 @@ def business():
         """
         cursor.execute(sql, (c_id, c_id))
         key_business_last = cursor.fetchall()
+
+        result['key_business_3_year'] = key_business_3_year
+        result['key_business_last'] = key_business_last
+
+        cursor.close()
     else:
         result['error'] = 'Need c_id'
-
-    result['key_business_3_year'] = key_business_3_year
-    result['key_business_last'] = key_business_last
-
-    cursor.close()
 
     return jsonify(result)
 
 @bp.route('/financialstatement')
 def financial_statement():
     c_id = request.args.get('c_id')
-    cursor = get_db().cursor()
 
     result = {
         'error': '',
@@ -449,13 +485,15 @@ def financial_statement():
         'operate_rev_YOY': '',
         'net_profit': '',
         'net_profit_YOY': '',
-        'statement_2_year': '',
-        'statement_last': ''
+        'statement_2_year': [],
+        'statement_last': {}
     }
 
     statement_2_year = []
     statement_last = {}
     if c_id:
+        cursor = get_db().cursor()
+
         # 最近两年
         sql = """
         select report_date, name, accounting_office, sum_ass, sum_liab, sum_she_equity, operate_rev, 
@@ -683,13 +721,13 @@ def financial_statement():
                 'total_asset_growth_rate': total_asset_growth_rate,
                 'net_profit_growth_rate': net_profit_growth_rate
             }
+        
+        result['statement_2_year'] = statement_2_year
+        result['statement_last'] = statement_last
+
+        cursor.close()
     else:
         result['error'] = 'Need c_id'
-
-    result['statement_2_year'] = statement_2_year
-    result['statement_last'] = statement_last
-
-    cursor.close()
 
     return jsonify(result)
 
@@ -967,7 +1005,6 @@ def financing_group_info():
 @bp.route('/financing_info_0729')
 def financing_info_0729():
     c_id = request.args.get('c_id')
-    cursor = get_db().cursor()
 
     result = {
         'error': '',
@@ -983,6 +1020,8 @@ def financing_info_0729():
     }
 
     if c_id:
+        cursor = get_db().cursor()
+
         # 授信统计信息
         credit_total = []
         sql = """select currency, sum(amount), sum(used), sum(unused)
@@ -1196,10 +1235,9 @@ def financing_info_0729():
 
         result['share_financing_detail'] = share_financing_detail
 
+        cursor.close()
     else:
         result['error'] = 'Need c_id'
-
-    cursor.close()
 
     return jsonify(result)
 
@@ -1484,6 +1522,7 @@ def financing_group_info_0729():
 
         result['share_financing_detail'] = share_financing_detail
 
+        cursor.close()
     else:
         result['error'] = 'Need g_id'
 
