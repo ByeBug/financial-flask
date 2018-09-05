@@ -73,6 +73,34 @@ def search_company():
     return jsonify(result)
 
 
+@bp.route('/search_industry')
+def search_industry():
+    keyword = request.args.get('keyword')
+
+    result = {
+        'error': '',
+        'result': []
+    }
+
+    if keyword:
+        cursor = get_db().cursor()
+
+        # 从数据库中取得带有关键字的列表
+        sql_pattern = '%' + keyword + '%'
+
+        sql = """select `c_id`, `name` from c_client
+            where `sfc` like %s"""
+        cursor.execute(sql, (sql_pattern,))
+
+        result['result'] = cursor.fetchall()
+
+        cursor.close()
+    else:
+        result['error'] = 'Need keyword'
+
+    return jsonify(result)
+
+
 @bp.route('/baseinfo')
 def baseinfo():
     c_id = request.args.get('c_id')
