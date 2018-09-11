@@ -1,4 +1,4 @@
-import functools, re, datetime
+import re, datetime
 
 from flask import Blueprint, g ,url_for, request, jsonify
 from financial.db import get_db
@@ -188,11 +188,15 @@ def baseinfo():
             from c_client where c_id = %s"""
             cursor.execute(sql, (c_id, ))
             q = cursor.fetchone()
+            codes = []
+            for i in q:
+                if i and re.match(r'\d{6}', i):
+                        codes.append(i)
             sql = """
             select s_name, s_id, list_date, address
             from shares
             where s_id in %s"""
-            cursor.execute(sql, (q, ))
+            cursor.execute(sql, (codes, ))
             for i in cursor.fetchall():
                 list_info.append({
                     's_name': i[0],
@@ -1260,47 +1264,53 @@ def financing_info_0729():
         sql = """select a_code, b_code, h_code, x_code, n_code, nas_code 
         from c_client where c_id = %s"""
         cursor.execute(sql, c_id)
-        code_list = cursor.fetchone() or []
+        q = cursor.fetchone() or []
+        codes = []
+        for i in q:
+            if i and re.match(r'\d{6}', i):
+                codes.append(i)
         share_financing_total = {
             'total': 0,
             'detail': ''
         }
-        sql = """select issue_type, sum(issue_count*issue_price) from shares_financing
-        where s_id in %s
-        group by issue_type"""
-        cursor.execute(sql, (code_list,))
-        q = cursor.fetchall()
-        share_financing_total['detail'] = q
-        for i in q:
-            share_financing_total['total'] += i[1]
+        if codes:
+            sql = """select issue_type, sum(issue_count*issue_price) from shares_financing
+            where s_id in %s
+            group by issue_type"""
+            cursor.execute(sql, (codes,))
+            q = cursor.fetchall()
+            share_financing_total['detail'] = q
+            for i in q:
+                share_financing_total['total'] += i[1]
         
         result['share_financing_total'] = share_financing_total
 
         # 股权融资详细
         share_financing_detail = []
-        sql = """select s_id, s_name, list_date, address, lead_underwriter
-        from shares where s_id in %s"""
-        cursor.execute(sql, (code_list,))
-        q = cursor.fetchall()
-        for i in q:
-            item = {
-                's_id': i[0],
-                's_name': i[1],
-                'list_date': i[2],
-                'address': i[3],
-                'lead_underwriter': i[4],
-                'detail': []
-            }
-            sql = """select issue_type, issue_date, issue_count, issue_price, raise_funds
-            from shares_financing where s_id = %s"""
-            cursor.execute(sql, i[0])
-            tmp = cursor.fetchall()
-            for tmp_i in tmp:
-                tmp_i = list(tmp_i)
-                tmp_i[1] = str(tmp_i[1])
-                item['detail'].append(tmp_i)
+        if codes:
+            sql = """select s_id, s_name, list_date, address, lead_underwriter
+            from shares where s_id in %s"""
+            cursor.execute(sql, (codes,))
+            q = cursor.fetchall()
+            for i in q:
+                item = {
+                    's_id': i[0],
+                    's_name': i[1],
+                    'list_date': i[2],
+                    'address': i[3],
+                    'lead_underwriter': i[4],
+                    'detail': []
+                }
+                sql = """select issue_type, issue_date, issue_count, issue_price, raise_funds
+                from shares_financing where s_id = %s"""
+                cursor.execute(sql, i[0])
+                tmp = cursor.fetchall()
+                for tmp_i in tmp:
+                    tmp_i = list(tmp_i)
+                    tmp_i[1] = str(tmp_i[1])
+                    item['detail'].append(tmp_i)
 
-            share_financing_detail.append(item)
+                share_financing_detail.append(item)
 
         result['share_financing_detail'] = share_financing_detail
 
@@ -1475,18 +1485,19 @@ def financing_group_info_0729():
         s_ids = []
         for i in q:
             s_ids.append(i[0])
-        sql = """
-        select organ, date(issuer_time), issuer_rating, issuer_move 
-        from b_bond_rating where s_id in %s
-        order by date(issuer_time) desc
-        limit 1"""
-        cursor.execute(sql, (s_ids, ))
-        q = cursor.fetchone()
-        if q:
-            rating['organ'] = q[0]
-            rating['date'] = str(q[1])
-            rating['rating'] = q[2]
-            rating['move'] = q[3]
+        if s_ids:
+            sql = """
+            select organ, date(issuer_time), issuer_rating, issuer_move 
+            from b_bond_rating where s_id in %s 
+            order by date(issuer_time) desc
+            limit 1"""
+            cursor.execute(sql, (s_ids, ))
+            q = cursor.fetchone()
+            if q:
+                rating['organ'] = q[0]
+                rating['date'] = str(q[1])
+                rating['rating'] = q[2]
+                rating['move'] = q[3]
 
         result['bond_detail'] = bond_detail
         result['rating'] = rating
@@ -1552,42 +1563,48 @@ def financing_group_info_0729():
         for i in q:
             code_list.extend(i)
         code_list = set(code_list)
-        sql = """select issue_type, sum(issue_count*issue_price) from shares_financing
-        where s_id in %s
-        group by issue_type"""
-        cursor.execute(sql, (code_list,))
-        q = cursor.fetchall()
-        share_financing_total['detail'] = q
-        for i in q:
-            share_financing_total['total'] += i[1]
+        codes = []
+        for i in code_list:
+            if i and re.match(r'\d{6}', i):
+                codes.append(i)
+        if codes:
+            sql = """select issue_type, sum(issue_count*issue_price) from shares_financing
+            where s_id in %s
+            group by issue_type"""
+            cursor.execute(sql, (codes,))
+            q = cursor.fetchall()
+            share_financing_total['detail'] = q
+            for i in q:
+                share_financing_total['total'] += i[1]
         
         result['share_financing_total'] = share_financing_total
 
         # 股权融资详细
         share_financing_detail = []
-        sql = """select s_id, s_name, list_date, address, lead_underwriter
-        from shares where s_id in %s"""
-        cursor.execute(sql, (code_list,))
-        q = cursor.fetchall()
-        for i in q:
-            item = {
-                's_id': i[0],
-                's_name': i[1],
-                'list_date': i[2],
-                'address': i[3],
-                'lead_underwriter': i[4],
-                'detail': []
-            }
-            sql = """select issue_type, issue_date, issue_count, issue_price, raise_funds
-            from shares_financing where s_id = %s"""
-            cursor.execute(sql, i[0])
-            tmp = cursor.fetchall()
-            for tmp_i in tmp:
-                tmp_i = list(tmp_i)
-                tmp_i[1] = str(tmp_i[1])
-                item['detail'].append(tmp_i)
+        if codes:
+            sql = """select s_id, s_name, list_date, address, lead_underwriter
+            from shares where s_id in %s"""
+            cursor.execute(sql, (codes,))
+            q = cursor.fetchall()
+            for i in q:
+                item = {
+                    's_id': i[0],
+                    's_name': i[1],
+                    'list_date': i[2],
+                    'address': i[3],
+                    'lead_underwriter': i[4],
+                    'detail': []
+                }
+                sql = """select issue_type, issue_date, issue_count, issue_price, raise_funds
+                from shares_financing where s_id = %s"""
+                cursor.execute(sql, i[0])
+                tmp = cursor.fetchall()
+                for tmp_i in tmp:
+                    tmp_i = list(tmp_i)
+                    tmp_i[1] = str(tmp_i[1])
+                    item['detail'].append(tmp_i)
 
-            share_financing_detail.append(item)
+                share_financing_detail.append(item)
 
         result['share_financing_detail'] = share_financing_detail
 
@@ -1596,269 +1613,3 @@ def financing_group_info_0729():
         result['error'] = 'Need g_id'
 
     return jsonify(result)
-
-
-# @bp.route('/financinginfo_abstract')
-# def financing_info():
-#     c_id = request.args.get('c_id')
-#     cursor = get_db().cursor()
-
-#     result = {
-#         'error': '',
-#         'name': '',
-#         'g_id': '',
-#         'year': '',
-#         'credit_amount': '',
-#         'total_bond': '',
-#         'super_s_limit': '',
-#         's_limit': '',
-#         'm_limit': '',
-#         'company_bond': '',
-#         'asset_bond': '',
-#         'avg_deadline': '',
-#         'avg_inter_rate': '',
-#         'sum_borrow': '',
-#         'st_borrow': '',
-#         'lt_borrow': ''
-#     }
-
-#     credit_amount = []
-#     if c_id:
-#         pass
-#         sql = 'select name, group_id where c_id = %s'
-#         cursor.execute(sql, c_idi)
-#         q = cursor.fetchone()
-#         if q:
-#             result['name'] = q[0]
-#             result['g_id'] = q[1]
-#             result['year'] = datetime.date.today().year
-#             # 授信信息
-#             sql = """select currency, sum(amount), sum(used), sum(unused)
-#             from c_credit_2 where c_id = %s
-#             GROUP BY currency"""
-#             cursor.execute(sql, c_id)
-#             q = cursor.fetchall()
-#             for i in q:
-#                 credit_amount.append({
-#                     'currency': i[0],
-#                     'amount': i[1],
-#                     'used': i[2],
-#                     'unused': i[3]
-#                 })
-#             # 债券信息
-#             # 存量债券
-#             sql = """select sum(total) from b_bond where debt_subject like %s"""
-#             cursor.execute(sql, result['name'])
-#             q = cursor.fetchone()
-#             result['total_bond'] = q[0]
-#             # 超短期
-#             sql = """select sum(total) from b_bond 
-#             where debt_subject like %s
-#             and deadline < 1"""
-#             cursor.execute(sql, result['name'])
-#             q = cursor.fetchone()
-#             result['super_s_limit'] = q[0]
-#             # 短期
-#             sql = """select sum(total) from b_bond 
-#             where debt_subject like %s
-#             and deadline >= 1
-#             and deadline <= 3"""
-#             cursor.execute(sql, result['name'])
-#             q = cursor.fetchone()
-#             result['s_limit'] = q[0]
-#             # 中期
-#             sql = """select sum(total) from b_bond 
-#             where debt_subject like %s
-#             and deadline >3
-#             and deadline <= 10"""
-#             cursor.execute(sql, result['name'])
-#             q = cursor.fetchone()
-#             result['m_limit'] = q[0]
-#             # 公司债
-#             sql = """select sum(total) from b_bond 
-#             where debt_subject like %s
-#             and (classify like '%公司债%'
-#             or classify like '%企业债%')"""
-#             cursor.execute(sql, result['name'])
-#             q = cursor.fetchone()
-#             result['company_bond'] = q[0]
-#             # 资产证券化
-#             sql = """select sum(total) from b_bond 
-#             where debt_subject like %s
-#             and classify like '%证监会主管ABS"""
-#             cursor.execute(sql, result['name'])
-#             q = cursor.fetchone()
-#             result['asset_bond'] = q[0]
-#             # 平均期限，平均票面利率
-#             sql = """select convert(AVG(deadline), DECIMAL(5,2)), convert(AVG(inter_rate), DECIMAL(5,2)) 
-#             from b_bond where debt_subject like %s"""
-#             cursor.execute(sql, result['name'])
-#             q = cursor.fetchone()
-#             result['avg_deadline'] = q[0]
-#             result['avg_inter_rate'] = q[1]
-#             # 负债合计，短期借款，长期借款
-#             sql = """select sum_liab, st_borrow, lt_borrow from fin_balance where c_id = %s"""
-#             cursor.execute(sql, c_id)
-#             q = cursor.fetchone()
-#             result['sum_borrow'] = q[0]
-#             result['st_borrow'] = q[1]
-#             result['lt_borrow'] = q[2]
-            
-#     else:
-#         result['error'] = 'Need c_id'
-
-#     cursor.close()
-
-#     return jsonify(result)
-
-
-# @bp.route('/financinginfo_group_abstract')
-# def financing_info():
-#     g_id = request.args.get('g_id')
-#     cursor = get_db().cursor()
-
-#     result = {
-#         'error': '',
-#         'name': '',
-#         'year': '',
-#         'credit_amount': '',
-#         'total_bond': '',
-#         'super_s_limit': '',
-#         's_limit': '',
-#         'm_limit': '',
-#         'company_bond': '',
-#         'asset_bond': '',
-#         'avg_deadline': '',
-#         'avg_inter_rate': '',
-#         'sum_borrow': '',
-#         'st_borrow': '',
-#         'lt_borrow': ''
-#     }
-
-#     if g_id:
-#         # 有授信信息的公司
-#         sql = """select distinct c_id from c_credit_2"""
-#         cursor.execute(sql)
-#         q = cursor.fetchall()
-#         companies_with_credit = set([i[0] for i in q])
-#         # 有债券信息的公司
-#         sql = """select distinct debt_subject from b_bond"""
-#         cursor.execute(sql)
-#         q = cursor.fetchall()
-#         companies_with_bonds = set([i[0] for i in q])
-#         # 有负债信息的公司
-#         sql = """select distinct c_id from fin_balance"""
-#         cursor.execute(sql)
-#         q = cursor.fetchall()
-#         companies_with_debts = set([i[0] for i in q])
-
-#         # 集团名称
-#         sql = 'select distinct `group` from c_client where group_id=%s'
-#         cursor.execute(sql, g_id)
-#         q = cursor.fetchone()
-
-#         result['name'] = q[0]
-#         result['year'] = datetime.date.today().year
-
-#         # 集团内企业
-#         sql = 'select c_id, name from c_client where group_id=%s'
-#         if cursor.execute(sql, g_id):
-#             q = cursor.fetchall()
-
-#             credit_amount = {}
-#             bond_num = 0
-#             total_bond = 0
-#             super_s_limit = 0
-#             s_limit = 0
-#             m_limit = 0
-#             company_bond = 0
-#             asset_bond = 0
-#             avg_deadline = 0
-#             avg_inter_rate = 0
-#             sum_borrow = 0
-#             st_borrow = 0
-#             lt_borrow = 0
-#             for i in q:
-#                 # 该企业授信
-#                 if i[0] in companies_with_credit:
-#                     # 授信信息
-#                     sql = """select currency, sum(amount), sum(used), sum(unused)
-#                     from c_credit_2 where c_id = %s
-#                     GROUP BY currency"""
-#                     cursor.execute(sql, i[0])
-#                     q = cursor.fetchall()
-#                     for i in q:
-#                         if i[0] not in credit_amount.keys():
-#                             credit_amount[i[0]] = {
-#                                 'currency': i[0],
-#                                 'amount': i[1],
-#                                 'used': i[2],
-#                                 'unused': i[3]
-#                             }
-#                         else:
-#                             credit_amount[i[0]]['amount'] += i[1]
-#                             credit_amount[i[0]]['used'] += i[2]
-#                             credit_amount[i[0]]['used'] += i[3]
-#                 # 该企业债券
-#                 if i[1] in companies_with_bonds:
-#                     bond_num += 1
-#                     # 存量债券
-#                     sql = """select count(*), sum(total) from b_bond where debt_subject like %s"""
-#                     cursor.execute(sql, i[1])
-#                     q = cursor.fetchone()
-#                     total_bond += q[0]
-#                     # 超短期
-#                     sql = """select sum(total) from b_bond 
-#                     where debt_subject like %s
-#                     and deadline < 1"""
-#                     cursor.execute(sql, i[1])
-#                     q = cursor.fetchone()
-#                     super_s_limit += q[0]
-#                     # 短期
-#                     sql = """select sum(total) from b_bond 
-#                     where debt_subject like %s
-#                     and deadline >= 1
-#                     and deadline <= 3"""
-#                     cursor.execute(sql, i[1])
-#                     q = cursor.fetchone()
-#                     s_limit += q[0]
-#                     # 中期
-#                     sql = """select sum(total) from b_bond 
-#                     where debt_subject like %s
-#                     and deadline >3
-#                     and deadline <= 10"""
-#                     cursor.execute(sql, i[1])
-#                     q = cursor.fetchone()
-#                     m_limit += q[0]
-#                     # 公司债
-#                     sql = """select sum(total) from b_bond 
-#                     where debt_subject like %s
-#                     and (classify like '%公司债%'
-#                     or classify like '%企业债%')"""
-#                     cursor.execute(sql, i[1])
-#                     q = cursor.fetchone()
-#                     company_bond += q[0]
-#                     # 资产证券化
-#                     sql = """select sum(total) from b_bond 
-#                     where debt_subject like %s
-#                     and classify like '%证监会主管ABS"""
-#                     cursor.execute(sql, i[1])
-#                     q = cursor.fetchone()
-#                     asset_bond += q[0]
-#                     # 平均期限，平均票面利率
-#                     sql = """select convert(AVG(deadline), DECIMAL(5,2)), convert(AVG(inter_rate), DECIMAL(5,2)) 
-#                     from b_bond where debt_subject like %s"""
-#                     cursor.execute(sql, result['name'])
-#                     q = cursor.fetchone()
-#                     result['avg_deadline'] = q[0]
-#                     result['avg_inter_rate'] = q[1]
-#                 # 该公司负债
-#                 if i[0] in companies_with_debts:
-#                     pass
-
-#     else:
-#         result['error'] = 'Need g_id'
-
-#     cursor.close()
-
-#     return jsonify(result)
