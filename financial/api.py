@@ -3,10 +3,13 @@ import functools, re, datetime
 from flask import Blueprint, g ,url_for, request, jsonify
 from financial.db import get_db
 
-bp = Blueprint('api', __name__, url_prefix='/api')
+bp = Blueprint('api', __name__, url_prefix='/api1')
 
 @bp.route('/companylist')
 def company_list():
+    limit = int(request.args.get('limit', 100))
+    offset = int(request.args.get('page', 0)) * limit
+
     cursor = get_db().cursor()
 
     result = {
@@ -15,8 +18,9 @@ def company_list():
     }
 
     c_list = []
-    sql = 'select c_id, name from c_client'
-    cursor.execute(sql)
+    sql = """SELECT `c_id`, `name` FROM `c_client` 
+        LIMIT %s OFFSET %s"""
+    cursor.execute(sql, (limit, offset))
     q = cursor.fetchall()
     for i in q:
         c_list.append({
@@ -34,9 +38,13 @@ def company_list():
 @bp.route('/search_company')
 def search_company():
     keyword = request.args.get('keyword')
+    industry = request.args.get('industry')
+    limit = int(request.args.get('limit', 100))
+    offset = int(request.args.get('page', 0)) * limit
 
     result = {
         'error': '',
+        'count': '',
         'result': []
     }
 
@@ -44,15 +52,37 @@ def search_company():
         cursor = get_db().cursor()
 
         # 从数据库中取得带有关键字的列表
-        sql_pattern = '%' + '%'.join(keyword) + '%'
+        name_pattern = '%' + '%'.join(keyword) + '%'
         sql_result = []
 
-        sql = """select `c_id`, `name` from c_client
-            where `name` like %s"""
-        cursor.execute(sql, (sql_pattern,))
-        q = cursor.fetchall()
-        for i in q:
-            sql_result.append(i)
+        if industry:
+            indus_pattern = '%' + industry + '%'
+
+            sql = """SELECT COUNT(*) FROM `c_client`
+                WHERE `name` LIKE %s
+                AND `sfc` LIKE %s"""
+            cursor.execute(sql, (name_pattern, indus_pattern))
+            count = cursor.fetchone()[0]
+
+            sql = """SELECT `c_id`, `name` FROM c_client
+                WHERE `name` LIKE %s
+                AND `sfc` LIKE %s"""
+            cursor.execute(sql, (name_pattern, indus_pattern))
+            q = cursor.fetchall()
+            for i in q:
+                sql_result.append(i)
+        else:
+            sql = """SELECT COUNT(*) FROM `c_client`
+                WHERE `name` LIKE %s"""
+            cursor.execute(sql, (name_pattern,))
+            count = cursor.fetchone()[0]
+
+            sql = """SELECT `c_id`, `name` FROM c_client
+                WHERE `name` LIKE %s"""
+            cursor.execute(sql, (name_pattern,))
+            q = cursor.fetchall()
+            for i in q:
+                sql_result.append(i)
 
         cursor.close()
 
@@ -66,7 +96,8 @@ def search_company():
                 sort_result.append((len(match.group()), match.start(), i))
         sort_result = [i[2] for i in sorted(sort_result)]
 
-        result['result'] = sort_result
+        result['count'] = count
+        result['result'] = sort_result[offset:offset+limit]
     else:
         result['error'] = 'Need keyword'
 
@@ -75,28 +106,38 @@ def search_company():
 
 @bp.route('/search_industry')
 def search_industry():
-    keyword = request.args.get('keyword')
+    industry = request.args.get('industry')
+    limit = int(request.args.get('limit', 100))
+    offset = int(request.args.get('page', 0)) * limit
 
     result = {
         'error': '',
+        'count': '',
         'result': []
     }
 
-    if keyword:
+    if industry:
         cursor = get_db().cursor()
 
         # 从数据库中取得带有关键字的列表
-        sql_pattern = '%' + keyword + '%'
+        sql_pattern = '%' + industry + '%'
 
-        sql = """select `c_id`, `name` from c_client
-            where `sfc` like %s"""
+        sql = """SELECT COUNT(*) FROM c_client
+            WHERE `sfc` LIKE %s"""
         cursor.execute(sql, (sql_pattern,))
+        count = cursor.fetchone()[0]
 
+        sql = """SELECT `c_id`, `name` FROM c_client
+            WHERE `sfc` LIKE %s
+            LIMIT %s OFFSET %s"""
+        cursor.execute(sql, (sql_pattern, limit, offset))
+
+        result['count'] = count
         result['result'] = cursor.fetchall()
 
         cursor.close()
     else:
-        result['error'] = 'Need keyword'
+        result['error'] = 'Need industry'
 
     return jsonify(result)
 
