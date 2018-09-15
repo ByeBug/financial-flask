@@ -64,12 +64,16 @@ def search_company():
             cursor.execute(sql, (name_pattern, indus_pattern))
             count = cursor.fetchone()[0]
 
-            sql = """SELECT `c_id`, `name` FROM c_client
+            sql = """SELECT `c_id`, `name`, `legal_name`, `logo` 
+                FROM c_client
                 WHERE `name` LIKE %s
                 AND `sfc` LIKE %s"""
             cursor.execute(sql, (name_pattern, indus_pattern))
             q = cursor.fetchall()
             for i in q:
+                i = list(i)
+                if not i[3]:
+                    i[3] = '/logo/默认图片.jpg'
                 sql_result.append(i)
         else:
             sql = """SELECT COUNT(*) FROM `c_client`
@@ -77,11 +81,15 @@ def search_company():
             cursor.execute(sql, (name_pattern,))
             count = cursor.fetchone()[0]
 
-            sql = """SELECT `c_id`, `name` FROM c_client
+            sql = """SELECT `c_id`, `name`, `legal_name`, `logo`
+                FROM c_client
                 WHERE `name` LIKE %s"""
             cursor.execute(sql, (name_pattern,))
             q = cursor.fetchall()
             for i in q:
+                i = list(i)
+                if not i[3]:
+                    i[3] = '/logo/默认图片.jpg'
                 sql_result.append(i)
 
         cursor.close()
@@ -127,13 +135,19 @@ def search_industry():
         cursor.execute(sql, (sql_pattern,))
         count = cursor.fetchone()[0]
 
-        sql = """SELECT `c_id`, `name` FROM c_client
+        sql = """SELECT `c_id`, `name`, `legal_name`, `logo`
+            FROM c_client
             WHERE `sfc` LIKE %s
             LIMIT %s OFFSET %s"""
         cursor.execute(sql, (sql_pattern, limit, offset))
+        q = cursor.fetchall()
+        for i in q:
+            i = list(i)
+            if not i[3]:
+                i[3] = '/logo/默认图片.jpg'
+            result['result'].append(i)
 
         result['count'] = count
-        result['result'] = cursor.fetchall()
 
         cursor.close()
     else:
@@ -243,7 +257,7 @@ def holders():
             result['name'] = q[0]
             result['type'] = q[1]
             result['act_control'] = q[2]
-            is_listed = q[3]
+            is_listed = int(q[3])
             if is_listed:
                 # 上市公司
                 sql = """
