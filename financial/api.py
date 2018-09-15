@@ -192,18 +192,19 @@ def baseinfo():
             for i in q:
                 if i and re.match(r'\d{6}', i):
                         codes.append(i)
-            sql = """
-            select s_name, s_id, list_date, address
-            from shares
-            where s_id in %s"""
-            cursor.execute(sql, (codes, ))
-            for i in cursor.fetchall():
-                list_info.append({
-                    's_name': i[0],
-                    's_id': i[1],
-                    'date': i[2],
-                    'address': i[3]
-                })
+            if codes:
+                sql = """
+                select s_name, s_id, list_date, address
+                from shares
+                where s_id in %s"""
+                cursor.execute(sql, (codes, ))
+                for i in cursor.fetchall():
+                    list_info.append({
+                        's_name': i[0],
+                        's_id': i[1],
+                        'date': i[2],
+                        'address': i[3]
+                    })
             result['list_info'] = list_info
 
         else:
@@ -269,7 +270,7 @@ def holders():
                     holders.append({'name': i[0], 'rate': i[1]})
             
             result['holders'] = holders
-            result['holder'] = holders[0]
+            result['holder'] = holders[0] if holders else ''
 
         else:
             result['error'] = 'No such firm'
@@ -413,6 +414,10 @@ def managers():
         inner join e_executive as e
         on (c.c_id = e.c_id and c.e_name = e.e_name)
         where c.c_id = %s"""
+
+        # sql = """SELECT e_name, post, abstract
+        # FROM e_executive
+        # WHERE c_id = %s"""
         cursor.execute(sql, (c_id, ))
         for i in cursor.fetchall():
             managers.append({
