@@ -517,7 +517,7 @@ def business():
             result['operate_rev'] = q[0][1]
             result['profit'] = q[0][2]
         if len(q) > 1:
-            operate_rev_YOY = (int(q[0][1]) - int(q[1][1])) / int(q[1][1])
+            operate_rev_YOY = (float(q[0][1]) - float(q[1][1])) / int(q[1][1])
             profit_YOY = (int(q[0][2]) - int(q[1][2])) / int(q[1][2])
             result['operate_rev_YOY'] = format(operate_rev_YOY, '0.2%')
             result['profit_YOY'] = format(profit_YOY, '0.2%')
@@ -605,7 +605,7 @@ def financial_statement():
             result['sum_asset'] = q[0][3]
             result['sum_debt'] = q[0][4]
             result['sum_owners_equity'] = q[0][5]
-            result['asset_debt_ratio'] = format(int(q[0][4]) / int(q[0][3]), '0.2%')
+            result['asset_debt_ratio'] = format(float(q[0][4]) / float(q[0][3]), '0.2%')
             result['operate_rev'] = q[0][6]
             result['net_profit'] = q[0][7]
             if len(q) > 1:
@@ -823,7 +823,7 @@ def financial_statement():
 
     return jsonify(result)
 
-@bp.route('/financinginfo')
+@bp.route('/financing_info')
 def financing_info():
     c_id = request.args.get('c_id')
     cursor = get_db().cursor()
