@@ -22,22 +22,26 @@ def financing_index():
         # 高管信息
         'managers': '',
         # 生产经营
-        'year': '',
-        'operate_rev': '',
-        'operate_rev_YOY': '',
-        'profit': '',
-        'profit_YOY': '',
-        'key_business_1_year': '',
+        'business': {
+            'year': '',
+            'operate_rev': '',
+            'operate_rev_YOY': '',
+            'profit': '',
+            'profit_YOY': '',
+            'key_business_1_year': '',
+        },
         # 财务情况
-        'year': '',
-        'asset_debt_ratio': '',
-        'net_profit': '',
-        'net_profit_YOY': '',
-        'operate_rev': '',
-        'operate_rev_YOY': '',
-        'sum_asset': '',
-        'sum_debt': '',
-        'sum_owners_equity': '',
+        'financialstatement': {
+            'year': '',
+            'asset_debt_ratio': '',
+            'net_profit': '',
+            'net_profit_YOY': '',
+            'operate_rev': '',
+            'operate_rev_YOY': '',
+            'sum_asset': '',
+            'sum_debt': '',
+            'sum_owners_equity': '',
+        },
         # 融资情况
         'credit_total': '',
         'bond_total': '',
@@ -101,6 +105,7 @@ def financing_index():
                 })
             result['managers'] = managers
             # 生产经营情况
+            business = result['business']
             # XX年，营业额，同比，利润总额，同比
             sql = """
             select report_date, tot_operate_rev, sum_profit from fin_income
@@ -111,14 +116,14 @@ def financing_index():
             cursor.execute(sql, (c_id, ))
             q = cursor.fetchall()
             if q:
-                result['year'] = q[0][0].year
-                result['operate_rev'] = q[0][1]
-                result['profit'] = q[0][2]
+                business['year'] = q[0][0].year
+                business['operate_rev'] = q[0][1]
+                business['profit'] = q[0][2]
             if len(q) > 1:
                 operate_rev_YOY = (float(q[0][1]) - float(q[1][1])) / float(q[1][1])
                 profit_YOY = (float(q[0][2]) - float(q[1][2])) / float(q[1][2])
-                result['operate_rev_YOY'] = format(operate_rev_YOY, '0.2%')
-                result['profit_YOY'] = format(profit_YOY, '0.2%')
+                business['operate_rev_YOY'] = format(operate_rev_YOY, '0.2%')
+                business['profit_YOY'] = format(profit_YOY, '0.2%')
             # 获取最近一年的时间
             sql = """
             select DISTINCT deadline
@@ -141,8 +146,9 @@ def financing_index():
                     'date': date,
                     'data': cursor.fetchall()
                 }
-                result['key_business_1_year'] = key_business_1_year
+                business['key_business_1_year'] = key_business_1_year
             # 财务情况
+            financialstatement = result['financialstatement']
             sql = """
             select report_date, name, accounting_office, sum_ass, sum_liab, sum_she_equity, operate_rev,
                 net_profit, sum_curr_ass, monetary_fund, account_rec, other_rec, advance_pay, inventory, fixed_ass,
@@ -156,22 +162,22 @@ def financing_index():
             cursor.execute(sql, (c_id, ))
             q = cursor.fetchall()
             if q:
-                result['year'] = q[0][0].year
-                result['sum_asset'] = q[0][3]
-                result['sum_debt'] = q[0][4]
-                result['sum_owners_equity'] = q[0][5]
-                result['asset_debt_ratio'] = format(float(q[0][4]) / float(q[0][3]), '0.2%')
-                result['operate_rev'] = q[0][6]
-                result['net_profit'] = q[0][7]
+                financialstatement['year'] = q[0][0].year
+                financialstatement['sum_asset'] = q[0][3]
+                financialstatement['sum_debt'] = q[0][4]
+                financialstatement['sum_owners_equity'] = q[0][5]
+                financialstatement['asset_debt_ratio'] = format(float(q[0][4]) / float(q[0][3]), '0.2%')
+                financialstatement['operate_rev'] = q[0][6]
+                financialstatement['net_profit'] = q[0][7]
                 if len(q) > 1:
                     try:
                         operate_rev_YOY = (float(q[0][6]) - float(q[1][6])) / float(q[1][6])
-                        result['operate_rev_YOY'] = format(operate_rev_YOY, '0.2%')
+                        financialstatement['operate_rev_YOY'] = format(operate_rev_YOY, '0.2%')
                     except:
                         pass
                     try:
                         net_profit_YOY = (float(q[0][7]) - float(q[1][7])) / float(q[1][7])
-                        result['net_profit_YOY'] = format(net_profit_YOY, '0.2%')
+                        financialstatement['net_profit_YOY'] = format(net_profit_YOY, '0.2%')
                     except:
                         pass
             # 融资情况
@@ -197,7 +203,7 @@ def financing_index():
             q = cursor.fetchone()
             if q:
                 name = '%' + q[0] + '%'
-                g_id = q[1]
+                # g_id = q[1]
             bond_total = {
                 'rest': '',
                 'total': '',
