@@ -5,6 +5,262 @@ from financial.db import get_db
 
 bp = Blueprint('api', __name__, url_prefix='/api1')
 
+@bp.route('/financing_index')
+def financing_index():
+    c_id = request.args.get('c_id')
+
+    result = {
+        'error': '',
+        # 基本信息
+        'name': '',
+        'legal_name': '',
+        # 股东信息
+        'first_holder_name': '',
+        'first_holder_rate': '',
+        # 历史沿革
+        'estab_date': '',
+        # 高管信息
+        'managers': '',
+        # 生产经营
+        'year': '',
+        'operate_rev': '',
+        'operate_rev_YOY': '',
+        'profit': '',
+        'profit_YOY': '',
+        'key_business_1_year': '',
+        # 财务情况
+        'year': '',
+        'asset_debt_ratio': '',
+        'net_profit': '',
+        'net_profit_YOY': '',
+        'operate_rev': '',
+        'operate_rev_YOY': '',
+        'sum_asset': '',
+        'sum_debt': '',
+        'sum_owners_equity': '',
+        # 融资情况
+        'credit_total': '',
+        'bond_total': '',
+        'debt': ''
+    }
+
+    if c_id:
+        cursor = get_db().cursor()
+
+        sql = """
+        select `name`, a_name, estab_time, money, legal_name, is_listed, logo
+        from c_client
+        where c_id = %s"""
+        cursor.execute(sql, (c_id, ))
+        q = cursor.fetchone()
+        if q:
+            # 基本信息
+            result['name'] = q[0]
+            result['legal_name'] = q[4]
+            result['estab_date'] = q[2]
+            # 股东信息
+            is_listed = int(q[5])
+            if is_listed:
+                # 上市公司
+                sql = """
+                SELECT shaholder_name, rate FROM c_top_shaholder
+                WHERE c_id = %s
+                    AND deadline = (
+                        SELECT MAX(deadline) FROM c_top_shaholder
+                        WHERE c_id = %s
+                    )
+                ORDER BY CONVERT(rate, DECIMAL(5,2)) desc
+                """
+                cursor.execute(sql, (c_id, c_id))
+                holder = cursor.fetchone()
+
+            else:
+                # 非上市公司
+                sql = """
+                select shaholder_name, invest_rate from c_shaholder
+                where c_id = %s
+                order by convert(invest_rate, decimal(5,2)) desc
+                """
+                cursor.execute(sql, (c_id, ))
+                holder = cursor.fetchone()
+
+            result['first_holder_name'] = holder[0]
+            result['first_holder_rate'] = holder[1]
+            # 高管信息
+            managers = []
+            sql = """SELECT e_name, post, abstract
+            FROM e_executive
+            WHERE c_id = %s
+            limit 3"""
+            cursor.execute(sql, (c_id, ))
+            for i in cursor.fetchall():
+                managers.append({
+                    'name': i[0],
+                    'post': i[1],
+                    'abstract': i[2]
+                })
+            result['managers'] = managers
+            # 生产经营情况
+            # XX年，营业额，同比，利润总额，同比
+            sql = """
+            select report_date, tot_operate_rev, sum_profit from fin_income
+            where c_id = %s and report_type = 1
+            order by report_date desc
+            limit 2
+            """
+            cursor.execute(sql, (c_id, ))
+            q = cursor.fetchall()
+            if q:
+                result['year'] = q[0][0].year
+                result['operate_rev'] = q[0][1]
+                result['profit'] = q[0][2]
+            if len(q) > 1:
+                operate_rev_YOY = (float(q[0][1]) - float(q[1][1])) / float(q[1][1])
+                profit_YOY = (float(q[0][2]) - float(q[1][2])) / float(q[1][2])
+                result['operate_rev_YOY'] = format(operate_rev_YOY, '0.2%')
+                result['profit_YOY'] = format(profit_YOY, '0.2%')
+            # 获取最近一年的时间
+            sql = """
+            select DISTINCT deadline
+            from c_key_business
+            where c_id = %s and MONTH(deadline)=12
+            order by deadline desc
+            limit 1
+            """
+            cursor.execute(sql, (c_id, ))
+            date = cursor.fetchone()
+            if date:
+                date = date[0]
+                sql = """
+                select deadline, classify, type, income, inc_rate, cost, cost_rate, profit, pro_rate, mon_rate
+                from c_key_business
+                where c_id = %s and deadline = %s
+                """
+                cursor.execute(sql, (c_id, date))
+                key_business_1_year = {
+                    'date': date,
+                    'data': cursor.fetchall()
+                }
+                result['key_business_1_year'] = key_business_1_year
+            # 财务情况
+            sql = """
+            select report_date, name, accounting_office, sum_ass, sum_liab, sum_she_equity, operate_rev,
+                net_profit, sum_curr_ass, monetary_fund, account_rec, other_rec, advance_pay, inventory, fixed_ass,
+                sum_curr_liab, st_borrow, bill_pay, account_pay, advance_rec, other_pay, lt_borrow, sum_parent_equity,
+                operate_exp, operate_tax, operate_profig, sum_profit, parent_net_profit, net_operate_cash_flow,
+                net_inv_cash_flow, net_fin_cash_flow
+            from statement_view
+            where c_id = %s and report_type = 1
+            order by report_date desc limit 2
+            """
+            cursor.execute(sql, (c_id, ))
+            q = cursor.fetchall()
+            if q:
+                result['year'] = q[0][0].year
+                result['sum_asset'] = q[0][3]
+                result['sum_debt'] = q[0][4]
+                result['sum_owners_equity'] = q[0][5]
+                result['asset_debt_ratio'] = format(float(q[0][4]) / float(q[0][3]), '0.2%')
+                result['operate_rev'] = q[0][6]
+                result['net_profit'] = q[0][7]
+                if len(q) > 1:
+                    try:
+                        operate_rev_YOY = (float(q[0][6]) - float(q[1][6])) / float(q[1][6])
+                        result['operate_rev_YOY'] = format(operate_rev_YOY, '0.2%')
+                    except:
+                        pass
+                    try:
+                        net_profit_YOY = (float(q[0][7]) - float(q[1][7])) / float(q[1][7])
+                        result['net_profit_YOY'] = format(net_profit_YOY, '0.2%')
+                    except:
+                        pass
+            # 融资情况
+            # 授信统计信息
+            credit_total = []
+            sql = """select currency, sum(amount), sum(used), sum(unused)
+            from c_credit_2 where c_id = %s
+            group by currency"""
+            cursor.execute(sql, c_id)
+            q = cursor.fetchall()
+            for i in q:
+                credit_total.append({
+                    'currency': i[0],
+                    'amount': i[1],
+                    'used': i[2],
+                    'unused': i[3]
+                })
+            result['credit_total'] = credit_total
+            # 债券统计信息
+            name = ''
+            sql = "select name, group_id from c_client where c_id = %s"
+            cursor.execute(sql, c_id)
+            q = cursor.fetchone()
+            if q:
+                name = '%' + q[0] + '%'
+                g_id = q[1]
+            bond_total = {
+                'rest': '',
+                'total': '',
+                'avg_deadline': '',
+                'avg_inter_rate': '',
+                'classify': []
+            }
+            sql = """select sum(rest), sum(total), avg(deadline), avg(inter_rate)
+            from b_bond where date(honour_date) > curdate() and
+            debt_subject like %s"""
+            cursor.execute(sql, name)
+            q = cursor.fetchone()
+            if q:
+                bond_total['rest'] = q[0]
+                bond_total['total'] = q[1]
+                bond_total['avg_deadline'] = q[2]
+                bond_total['avg_inter_rate'] = q[3]
+            sql = """select classify, count(*), sum(rest), sum(total)
+            from b_bond where date(honour_date) > curdate() and
+            debt_subject like %s
+            group by classify"""
+            cursor.execute(sql, name)
+            q = cursor.fetchall()
+            for i in q:
+                bond_total['classify'].append({
+                    'classify': i[0],
+                    'count': i[1],
+                    'rest': i[2],
+                    'total': i[3]
+                })
+            result['bond_total'] = bond_total
+            # 有息负债
+            debt = {
+                'total': '',
+                'last': []
+            }
+            # 最近一期
+            sql = """select sum_liab, report_date, st_borrow, bill_pay, non_curr_liab_one_year,
+            lt_borrow, bond_pay, leasehold, debt_total, loan_rec, issue_bond_rec,
+            repay_debt_pay, dividend_profit_or_interest_pay, flow_total
+            from debt_info where report_type = 0 and c_id = %s
+            order by report_date desc
+            limit 1"""
+            cursor.execute(sql, c_id)
+            q = cursor.fetchone()
+            if q:
+                q = list(q)
+                debt['total'] = q[0]
+                debt['last'] = q[1:]
+                debt['last'][0] = str(debt['last'][0])
+            result['debt'] = debt
+
+        else:
+            result['error'] = 'No such company'
+
+        cursor.close()
+
+    else:
+        result['error'] = 'Need c_id'
+
+    return jsonify(result)
+
+
 @bp.route('/companylist')
 def company_list():
     limit = int(request.args.get('limit', 100))
@@ -18,7 +274,7 @@ def company_list():
     }
 
     c_list = []
-    sql = """SELECT `c_id`, `name` FROM `c_client` 
+    sql = """SELECT `c_id`, `name` FROM `c_client`
         LIMIT %s OFFSET %s"""
     cursor.execute(sql, (limit, offset))
     q = cursor.fetchall()
@@ -64,7 +320,7 @@ def search_company():
             cursor.execute(sql, (name_pattern, indus_pattern))
             count = cursor.fetchone()[0]
 
-            sql = """SELECT `c_id`, `name`, `legal_name`, `logo` 
+            sql = """SELECT `c_id`, `name`, `legal_name`, `logo`
                 FROM c_client
                 WHERE `name` LIKE %s
                 AND `sfc` LIKE %s"""
@@ -198,7 +454,7 @@ def baseinfo():
 
             list_info = []
             sql = """
-            select a_code, b_code, h_code, x_code, n_code, nas_code 
+            select a_code, b_code, h_code, x_code, n_code, nas_code
             from c_client where c_id = %s"""
             cursor.execute(sql, (c_id, ))
             q = cursor.fetchone()
@@ -223,7 +479,7 @@ def baseinfo():
 
         else:
             result['error'] = 'No such firm'
-        
+
         cursor.close()
     else:
         result['error'] = 'Need c_id'
@@ -246,7 +502,7 @@ def holders():
 
     if c_id:
         cursor = get_db().cursor()
-        
+
         sql = """
         select name, enterprise_type, act_contr_id, is_listed from c_client
         where c_id = %s
@@ -282,13 +538,13 @@ def holders():
                 cursor.execute(sql, (c_id, ))
                 for i in cursor.fetchall():
                     holders.append({'name': i[0], 'rate': i[1]})
-            
+
             result['holders'] = holders
             result['holder'] = holders[0] if holders else ''
 
         else:
             result['error'] = 'No such firm'
-        
+
         cursor.close()
     else:
         result['error'] = 'need c_id'
@@ -323,13 +579,13 @@ def firmgraph_holders():
                     temp_q = cursor.fetchone()
                     if temp_q:
                         holder['code'] = temp_q[0]
-                    
+
                     holders.append(holder)
-                
+
                 return holders
             else:
                 # 非上市公司
-                sql = """select shaholder_id, shaholder_name, invest_rate as rate 
+                sql = """select shaholder_id, shaholder_name, invest_rate as rate
                 from c_shaholder where c_id = %s
                 order by convert(rate, decimal(5,2)) desc"""
                 cursor.execute(sql, (c_id, ))
@@ -341,14 +597,14 @@ def firmgraph_holders():
                         'rate': i[2]
                     }
                     holders.append(holder)
-                
+
                 return holders
         else:
             return []
 
 
     c_id = request.args.get('c_id')
-    
+
     result = {
         'error': '',
         'holders': []
@@ -359,13 +615,13 @@ def firmgraph_holders():
 
         holders = get_holders(c_id, cursor)
         result['holders'] = holders
-        
+
         cursor.close()
     else:
         result['error'] = 'Need c_id'
 
     return jsonify(result)
-        
+
 
 @bp.route('/firmgraph_investments')
 def firmgraph_investments():
@@ -401,7 +657,7 @@ def firmgraph_investments():
 
         investments = get_investments(c_id, cursor)
         result['investments'] = investments
-        
+
         cursor.close()
     else:
         result['error'] = 'Need c_id'
@@ -422,16 +678,9 @@ def managers():
     if c_id:
         cursor = get_db().cursor()
 
-        sql = """
-        select c.e_name, c.post, e.abstract
-        from client_executive as c
-        inner join e_executive as e
-        on (c.c_id = e.c_id and c.e_name = e.e_name)
-        where c.c_id = %s"""
-
-        # sql = """SELECT e_name, post, abstract
-        # FROM e_executive
-        # WHERE c_id = %s"""
+        sql = """SELECT e_name, post, abstract
+        FROM e_executive
+        WHERE c_id = %s"""
         cursor.execute(sql, (c_id, ))
         for i in cursor.fetchall():
             managers.append({
@@ -439,7 +688,7 @@ def managers():
                 'post': i[1],
                 'abstract': i[2]
             })
-        
+
         result['managers'] = managers
 
         cursor.close()
@@ -473,7 +722,7 @@ def changeinfo():
                 'before': i[2],
                 'after': i[3],
             })
-        
+
         result['changeinfos'] = changeinfos
 
         cursor.close()
@@ -517,8 +766,8 @@ def business():
             result['operate_rev'] = q[0][1]
             result['profit'] = q[0][2]
         if len(q) > 1:
-            operate_rev_YOY = (float(q[0][1]) - float(q[1][1])) / int(q[1][1])
-            profit_YOY = (int(q[0][2]) - int(q[1][2])) / int(q[1][2])
+            operate_rev_YOY = (float(q[0][1]) - float(q[1][1])) / float(q[1][1])
+            profit_YOY = (float(q[0][2]) - float(q[1][2])) / float(q[1][2])
             result['operate_rev_YOY'] = format(operate_rev_YOY, '0.2%')
             result['profit_YOY'] = format(profit_YOY, '0.2%')
         # 获取最近三年的时间
@@ -588,15 +837,15 @@ def financial_statement():
 
         # 最近两年
         sql = """
-        select report_date, name, accounting_office, sum_ass, sum_liab, sum_she_equity, operate_rev, 
-            net_profit, sum_curr_ass, monetary_fund, account_rec, other_rec, advance_pay, inventory, fixed_ass, 
+        select report_date, name, accounting_office, sum_ass, sum_liab, sum_she_equity, operate_rev,
+            net_profit, sum_curr_ass, monetary_fund, account_rec, other_rec, advance_pay, inventory, fixed_ass,
             sum_curr_liab, st_borrow, bill_pay, account_pay, advance_rec, other_pay, lt_borrow, sum_parent_equity,
-            operate_exp, operate_tax, operate_profig, sum_profit, parent_net_profit, net_operate_cash_flow, 
+            operate_exp, operate_tax, operate_profig, sum_profit, parent_net_profit, net_operate_cash_flow,
             net_inv_cash_flow, net_fin_cash_flow
         from statement_view
         where c_id = %s and report_type = 1
         order by report_date desc limit 3
-        """ 
+        """
         cursor.execute(sql, (c_id, ))
         q = cursor.fetchall()
         # 有的财务数据可能缺少某些项
@@ -610,12 +859,12 @@ def financial_statement():
             result['net_profit'] = q[0][7]
             if len(q) > 1:
                 try:
-                    operate_rev_YOY = (int(q[0][6]) - int(q[1][6])) / int(q[1][6])
+                    operate_rev_YOY = (float(q[0][6]) - float(q[1][6])) / float(q[1][6])
                     result['operate_rev_YOY'] = format(operate_rev_YOY, '0.2%')
                 except:
                     pass
                 try:
-                    net_profit_YOY = (int(q[0][7]) - int(q[1][7])) / int(q[1][7])
+                    net_profit_YOY = (float(q[0][7]) - float(q[1][7])) / float(q[1][7])
                     result['net_profit_YOY'] = format(net_profit_YOY, '0.2%')
                 except:
                     pass
@@ -623,61 +872,61 @@ def financial_statement():
                 i = q[index]
 
                 try:
-                    net_cash_flow = int(i[28]) + int(i[29]) + int(i[30])
+                    net_cash_flow = float(i[28]) + float(i[29]) + float(i[30])
                 except:
                     net_cash_flow = ''
                 try:
-                    asset_debt_ratio = format(int(i[4]) / int(i[3]), '0.2%')
+                    asset_debt_ratio = format(float(i[4]) / float(i[3]), '0.2%')
                 except:
                     asset_debt_ratio = ''
                 try:
-                    current_ratio = format(int(i[8]) / int(i[15]), '0.2%')
+                    current_ratio = format(float(i[8]) / float(i[15]), '0.2%')
                 except:
                     current_ratio = ''
                 try:
-                    quick_ratio = format((int(i[8]) - int(i[13]) - int(i[12])) / int(i[15]), '0.2%')
+                    quick_ratio = format((float(i[8]) - float(i[13]) - float(i[12])) / float(i[15]), '0.2%')
                 except:
                     quick_ratio = ''
                 try:
-                    total_asset_turnover = format(int(i[6]) / int(i[3]), '0.2%')
+                    total_asset_turnover = format(float(i[6]) / float(i[3]), '0.2%')
                 except:
                     total_asset_turnover = ''
                 try:
-                    main_business_profit_ratio = format(int(i[25]) / int(i[6]), '0.2%')
+                    main_business_profit_ratio = format(float(i[25]) / float(i[6]), '0.2%')
                 except:
                     main_business_profit_ratio = ''
                 try:
-                    net_asset_return_ratio = format(int(i[27]) / (int(i[3]) - int(i[4])), '0.2%')
+                    net_asset_return_ratio = format(float(i[27]) / (float(i[3]) - float(i[4])), '0.2%')
                 except:
                     net_asset_return_ratio = ''
-                
+
                 j = q[index + 1]
                 try:
-                    account_rec_turnover = format(int(i[6]) / ((int(i[10]) + int(j[10])) / 2), '0.2f')
+                    account_rec_turnover = format(float(i[6]) / ((float(i[10]) + float(j[10])) / 2), '0.2f')
                 except:
                     account_rec_turnover = ''
                 try:
-                    inventory_turnover = format(int(i[23]) / ((int(i[13]) + int(j[13])) / 2), '0.2f')
+                    inventory_turnover = format(float(i[23]) / ((float(i[13]) + float(j[13])) / 2), '0.2f')
                 except:
                     inventory_turnover = ''
                 try:
-                    total_asset_return_ratio = format(int(i[26]) / ((int(i[3]) + int(j[3])) / 2), '0.2%')
+                    total_asset_return_ratio = format(float(i[26]) / ((float(i[3]) + float(j[3])) / 2), '0.2%')
                 except:
                     total_asset_return_ratio = ''
                 try:
-                    business_growth_rate = format((int(i[6]) - int(j[6])) / int(j[6]), '0.2%')
+                    business_growth_rate = format((float(i[6]) - float(j[6])) / float(j[6]), '0.2%')
                 except:
                     business_growth_rate = ''
                 try:
-                    total_asset_growth_rate = format((int(i[3]) - int(j[3])) / int(j[3]), '0.2%')
+                    total_asset_growth_rate = format((float(i[3]) - float(j[3])) / float(j[3]), '0.2%')
                 except:
                     total_asset_growth_rate = ''
                 try:
-                    net_profit_growth_rate = format((int(i[7]) - int(j[7])) / int(j[7]), '0.2%')
+                    net_profit_growth_rate = format((float(i[7]) - float(j[7])) / float(j[7]), '0.2%')
                 except:
                     net_profit_growth_rate = ''
 
-                
+
                 item = {
                     'date': str(i[0]),
                     'sum_asset': i[3],
@@ -726,10 +975,10 @@ def financial_statement():
 
         # 最近一期
         sql = """
-        select report_date, name, accounting_office, sum_ass, sum_liab, sum_she_equity, operate_rev, 
+        select report_date, name, accounting_office, sum_ass, sum_liab, sum_she_equity, operate_rev,
             net_profit, sum_curr_ass, monetary_fund, account_rec, other_rec, advance_pay, inventory, fixed_ass,
             sum_curr_liab, st_borrow, bill_pay, account_pay, advance_rec, other_pay, lt_borrow, sum_parent_equity,
-            operate_exp, operate_tax, operate_profig, sum_profit, parent_net_profit, net_operate_cash_flow, 
+            operate_exp, operate_tax, operate_profig, sum_profit, parent_net_profit, net_operate_cash_flow,
             net_inv_cash_flow, net_fin_cash_flow
         from statement_view
         where c_id = %s and report_type = 0
@@ -739,29 +988,29 @@ def financial_statement():
         q = cursor.fetchone()
         if q:
             try:
-                net_cash_flow = int(q[28]) + int(q[29]) + int(q[30])
+                net_cash_flow = float(q[28]) + float(q[29]) + float(q[30])
             except:
                 net_cash_flow = ''
             try:
-                asset_debt_ratio = format(int(q[4]) / int(q[3]), '0.2%')
+                asset_debt_ratio = format(float(q[4]) / float(q[3]), '0.2%')
             except:
                 asset_debt_ratio = ''
             try:
-                current_ratio = format(int(q[8]) / int(q[15]), '0.2%')
+                current_ratio = format(float(q[8]) / float(q[15]), '0.2%')
             except:
                 current_ratio = ''
             try:
-                quick_ratio = format((int(q[8]) - int(q[13]) - int(q[12])) / int(q[15]), '0.2%')
+                quick_ratio = format((float(q[8]) - float(q[13]) - float(q[12])) / float(q[15]), '0.2%')
             except:
                 quick_ratio = ''
             account_rec_turnover = ''
             inventory_turnover = ''
             try:
-                total_asset_turnover = format(int(q[6]) / int(q[3]), '0.2%')
+                total_asset_turnover = format(float(q[6]) / float(q[3]), '0.2%')
             except:
                 total_asset_turnover = ''
             try:
-                main_business_profit_ratio = format(int(q[25]) / int(q[6]), '0.2%')
+                main_business_profit_ratio = format(float(q[25]) / float(q[6]), '0.2%')
             except:
                 main_business_profit_ratio = ''
             net_asset_return_ratio = ''
@@ -813,7 +1062,7 @@ def financial_statement():
                 'total_asset_growth_rate': total_asset_growth_rate,
                 'net_profit_growth_rate': net_profit_growth_rate
             }
-        
+
         result['statement_2_year'] = statement_2_year
         result['statement_last'] = statement_last
 
@@ -884,7 +1133,7 @@ def financing_info():
             name = '%' + q[0] + '%'
             result['g_id'] = q[1]
         sql = """
-        select debt_subject, s_id, s_name, s_short_name, init_face_value, total, rest, inter_type, 
+        select debt_subject, s_id, s_name, s_short_name, init_face_value, total, rest, inter_type,
             inter_rate, deadline, list_date, list_address, classify, lead_underwriter
         from b_bond where date(honour_date) > curdate() and
         debt_subject like %s
@@ -912,10 +1161,10 @@ def financing_info():
                 }
                 bonds.append(item)
                 s_ids.append(i[1])
-            
+
             # 主体评级
             sql = """
-            select organ, date(issuer_time), issuer_rating, issuer_move 
+            select organ, date(issuer_time), issuer_rating, issuer_move
             from b_bond_rating where s_id in %s
             order by date(issuer_time) desc"""
             cursor.execute(sql, (s_ids, ))
@@ -927,8 +1176,8 @@ def financing_info():
 
         # 最近三年有息负债情况
         sql = """
-        select report_date, st_borrow, bill_pay, non_curr_liab_one_year, lt_borrow, bond_pay, 
-            leasehold, loan_rec, issue_bond_rec, repay_debt_pay, dividend_profit_or_interest_pay, 
+        select report_date, st_borrow, bill_pay, non_curr_liab_one_year, lt_borrow, bond_pay,
+            leasehold, loan_rec, issue_bond_rec, repay_debt_pay, dividend_profit_or_interest_pay,
             net_operate_cash_flow, net_inv_cash_flow, net_fin_cash_flow
         from debt_info
         where c_id = %s and report_type = 1
@@ -939,8 +1188,8 @@ def financing_info():
         debt_info_3_year = cursor.fetchall()
         # 最新一期
         sql = """
-        select report_date, st_borrow, bill_pay, non_curr_liab_one_year, lt_borrow, bond_pay, 
-            leasehold, loan_rec, issue_bond_rec, repay_debt_pay, dividend_profit_or_interest_pay, 
+        select report_date, st_borrow, bill_pay, non_curr_liab_one_year, lt_borrow, bond_pay,
+            leasehold, loan_rec, issue_bond_rec, repay_debt_pay, dividend_profit_or_interest_pay,
             net_operate_cash_flow, net_inv_cash_flow, net_fin_cash_flow
         from debt_info
         where c_id = %s and report_type = 0
@@ -1020,12 +1269,12 @@ def financing_group_info():
                         'name': i[1],
                         'credit_detail': credit_detail
                     })
-                
+
                 # 该企业债券
                 if i[1] in companies_with_bonds:
                     name = '%' + i[1] + '%'
                     sql = """
-                    select debt_subject, s_id, s_name, s_short_name, init_face_value, total, rest, inter_type, 
+                    select debt_subject, s_id, s_name, s_short_name, init_face_value, total, rest, inter_type,
                         inter_rate, deadline, list_date, list_address, classify, lead_underwriter
                     from b_bond where date(honour_date) > curdate() and
                     debt_subject like %s"""
@@ -1054,8 +1303,8 @@ def financing_group_info():
                 if i[0] in companies_with_debts:
                     # 最新一期
                     sql = """
-                    select report_date, st_borrow, bill_pay, non_curr_liab_one_year, lt_borrow, bond_pay, 
-                        leasehold, loan_rec, issue_bond_rec, repay_debt_pay, dividend_profit_or_interest_pay, 
+                    select report_date, st_borrow, bill_pay, non_curr_liab_one_year, lt_borrow, bond_pay,
+                        leasehold, loan_rec, issue_bond_rec, repay_debt_pay, dividend_profit_or_interest_pay,
                         net_operate_cash_flow, net_inv_cash_flow, net_fin_cash_flow
                     from debt_info
                     where c_id = %s and report_type = 0
@@ -1065,8 +1314,8 @@ def financing_group_info():
                     debt_info_last = cursor.fetchone() or []
                     # 最近三年有息负债情况
                     sql = """
-                    select report_date, st_borrow, bill_pay, non_curr_liab_one_year, lt_borrow, bond_pay, 
-                        leasehold, loan_rec, issue_bond_rec, repay_debt_pay, dividend_profit_or_interest_pay, 
+                    select report_date, st_borrow, bill_pay, non_curr_liab_one_year, lt_borrow, bond_pay,
+                        leasehold, loan_rec, issue_bond_rec, repay_debt_pay, dividend_profit_or_interest_pay,
                         net_operate_cash_flow, net_inv_cash_flow, net_fin_cash_flow
                     from debt_info
                     where c_id = %s and report_type = 1
@@ -1082,7 +1331,7 @@ def financing_group_info():
                         'debt_info_last': debt_info_last
                     }
                     debts.append(debt)
-        
+
         result['credit'] = credit
         result['bonds'] = bonds
         result['debts'] = debts
@@ -1163,7 +1412,7 @@ def financing_info_0729():
             'avg_inter_rate': '',
             'classify': []
         }
-        sql = """select sum(rest), sum(total), avg(deadline), avg(inter_rate) 
+        sql = """select sum(rest), sum(total), avg(deadline), avg(inter_rate)
         from b_bond where date(honour_date) > curdate() and
         debt_subject like %s"""
         cursor.execute(sql, name)
@@ -1199,7 +1448,7 @@ def financing_info_0729():
         }
 
         sql = """
-        select debt_subject, s_id, s_name, s_short_name, init_face_value, total, rest, inter_type, 
+        select debt_subject, s_id, s_name, s_short_name, init_face_value, total, rest, inter_type,
             inter_rate, deadline, list_date, list_address, classify, lead_underwriter
         from b_bond where date(honour_date) > curdate() and
         debt_subject like %s
@@ -1227,10 +1476,10 @@ def financing_info_0729():
                 }
                 bond_detail.append(item)
                 s_ids.append(i[1])
-            
+
             # 主体评级
             sql = """
-            select organ, date(issuer_time), issuer_rating, issuer_move 
+            select organ, date(issuer_time), issuer_rating, issuer_move
             from b_bond_rating where s_id in %s
             order by date(issuer_time) desc
             limit 1"""
@@ -1251,22 +1500,22 @@ def financing_info_0729():
             'last': []
         }
         # 最近一期
-        sql = """select sum_liab, report_date, st_borrow, bill_pay, non_curr_liab_one_year, 
-        lt_borrow, bond_pay, leasehold, debt_total, loan_rec, issue_bond_rec, 
+        sql = """select sum_liab, report_date, st_borrow, bill_pay, non_curr_liab_one_year,
+        lt_borrow, bond_pay, leasehold, debt_total, loan_rec, issue_bond_rec,
         repay_debt_pay, dividend_profit_or_interest_pay, flow_total
         from debt_info where report_type = 0 and c_id = %s
         order by report_date desc
         limit 1"""
-        cursor.execute(sql, c_id)  
-        q = cursor.fetchone()      
+        cursor.execute(sql, c_id)
+        q = cursor.fetchone()
         if q:
             q = list(q)
             debt['total'] = q[0]
             debt['last'] = q[1:]
             debt['last'][0] = str(debt['last'][0])
         # 近三年
-        sql = """select report_date, st_borrow, bill_pay, non_curr_liab_one_year, 
-        lt_borrow, bond_pay, leasehold, debt_total, loan_rec, issue_bond_rec, 
+        sql = """select report_date, st_borrow, bill_pay, non_curr_liab_one_year,
+        lt_borrow, bond_pay, leasehold, debt_total, loan_rec, issue_bond_rec,
         repay_debt_pay, dividend_profit_or_interest_pay, flow_total
         from debt_info where report_type = 1 and c_id = %s
         order by report_date desc
@@ -1280,7 +1529,7 @@ def financing_info_0729():
 
         result['debt'] = debt
         # 股权融资
-        sql = """select a_code, b_code, h_code, x_code, n_code, nas_code 
+        sql = """select a_code, b_code, h_code, x_code, n_code, nas_code
         from c_client where c_id = %s"""
         cursor.execute(sql, c_id)
         q = cursor.fetchone() or []
@@ -1301,7 +1550,7 @@ def financing_info_0729():
             share_financing_total['detail'] = q
             for i in q:
                 share_financing_total['total'] += i[1]
-        
+
         result['share_financing_total'] = share_financing_total
 
         # 股权融资详细
@@ -1368,12 +1617,12 @@ def financing_group_info_0729():
         for i in q:
             c_ids.append(i[0])
             names.append(i[1])
-        
+
         if not c_ids:
             result['error'] = 'No company'
 
             return jsonify(result)
-        
+
         # 授信
         # 授信统计信息
         credit_total = []
@@ -1389,7 +1638,7 @@ def financing_group_info_0729():
                 'used': i[2],
                 'unused': i[3]
             })
-        
+
         result['credit_total'] = credit_total
 
         # 授信详细信息
@@ -1409,7 +1658,7 @@ def financing_group_info_0729():
                 'name': i[5],
                 'limit_date': i[6]
             })
-        
+
         result['credit_detail'] = credit_detail
 
         # 债券
@@ -1422,7 +1671,7 @@ def financing_group_info_0729():
             'classify': [],
             'subject': []
         }
-        sql = """select sum(rest), sum(total), avg(deadline), avg(inter_rate) 
+        sql = """select sum(rest), sum(total), avg(deadline), avg(inter_rate)
         from b_bond where date(honour_date) > curdate() and
         debt_subject in %s"""
         cursor.execute(sql, (names,))
@@ -1470,7 +1719,7 @@ def financing_group_info_0729():
         }
 
         sql = """
-        select debt_subject, s_id, s_name, s_short_name, init_face_value, total, rest, inter_type, 
+        select debt_subject, s_id, s_name, s_short_name, init_face_value, total, rest, inter_type,
             inter_rate, deadline, list_date, list_address, classify, lead_underwriter
         from b_bond where date(honour_date) > curdate() and
         debt_subject in %s
@@ -1495,9 +1744,9 @@ def financing_group_info_0729():
                 'lead_underwriter': i[13]
             }
             bond_detail.append(item)
-            
+
         # 主体评级
-        sql = """select s_id from b_bond where debt_subject = 
+        sql = """select s_id from b_bond where debt_subject =
         (select name from c_client where c_id = %s)"""
         cursor.execute(sql, (g_id, ))
         q = cursor.fetchall()
@@ -1506,8 +1755,8 @@ def financing_group_info_0729():
             s_ids.append(i[0])
         if s_ids:
             sql = """
-            select organ, date(issuer_time), issuer_rating, issuer_move 
-            from b_bond_rating where s_id in %s 
+            select organ, date(issuer_time), issuer_rating, issuer_move
+            from b_bond_rating where s_id in %s
             order by date(issuer_time) desc
             limit 1"""
             cursor.execute(sql, (s_ids, ))
@@ -1528,8 +1777,8 @@ def financing_group_info_0729():
             'last': []
         }
         # 最近一期
-        sql = """select sum(sum_liab), report_date, sum(st_borrow), sum(bill_pay), sum(non_curr_liab_one_year), 
-        sum(lt_borrow), sum(bond_pay), sum(leasehold), sum(debt_total), sum(loan_rec), sum(issue_bond_rec), 
+        sql = """select sum(sum_liab), report_date, sum(st_borrow), sum(bill_pay), sum(non_curr_liab_one_year),
+        sum(lt_borrow), sum(bond_pay), sum(leasehold), sum(debt_total), sum(loan_rec), sum(issue_bond_rec),
         sum(repay_debt_pay), sum(dividend_profit_or_interest_pay), sum(flow_total)
         from debt_info where report_type = 0 and c_id in %s
         group by report_date
@@ -1542,8 +1791,8 @@ def financing_group_info_0729():
             debt['last'] = q[1:]
             debt['last'][0] = str(debt['last'][0])
         # 近三年
-        sql = """select report_date, sum(st_borrow), sum(bill_pay), sum(non_curr_liab_one_year), 
-        sum(lt_borrow), sum(bond_pay), sum(leasehold), sum(debt_total), sum(loan_rec), sum(issue_bond_rec), 
+        sql = """select report_date, sum(st_borrow), sum(bill_pay), sum(non_curr_liab_one_year),
+        sum(lt_borrow), sum(bond_pay), sum(leasehold), sum(debt_total), sum(loan_rec), sum(issue_bond_rec),
         sum(repay_debt_pay), sum(dividend_profit_or_interest_pay), sum(flow_total)
         from debt_info where report_type = 1 and c_id in %s
         group by report_date
@@ -1574,7 +1823,7 @@ def financing_group_info_0729():
             share_financing_total['listed'].append(i[0])
         share_financing_total['listed_num'] = len(share_financing_total['listed'])
 
-        sql = """select a_code, b_code, h_code, x_code, n_code, nas_code 
+        sql = """select a_code, b_code, h_code, x_code, n_code, nas_code
         from c_client where c_id in %s"""
         cursor.execute(sql, (c_ids,))
         q = cursor.fetchall()
@@ -1595,7 +1844,7 @@ def financing_group_info_0729():
             share_financing_total['detail'] = q
             for i in q:
                 share_financing_total['total'] += i[1]
-        
+
         result['share_financing_total'] = share_financing_total
 
         # 股权融资详细
