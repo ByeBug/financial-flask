@@ -817,6 +817,7 @@ def business():
 
     return jsonify(result)
 
+
 @bp.route('/financialstatement')
 def financial_statement():
     c_id = request.args.get('c_id')
@@ -1077,6 +1078,7 @@ def financial_statement():
         result['error'] = 'Need c_id'
 
     return jsonify(result)
+
 
 @bp.route('/financing_info')
 def financing_info():
@@ -1885,5 +1887,73 @@ def financing_group_info_0729():
         cursor.close()
     else:
         result['error'] = 'Need g_id'
+
+    return jsonify(result)
+
+
+@bp.route('/industry_avg_list')
+def industry_avg_list():
+    """行业平均值表中行业信息列表"""
+
+    result = {
+        'error': ''
+    }
+
+    sql = """select distinct `time`
+    from industry_avg
+    """
+
+    cursor = get_db().cursor()
+
+    cursor.execute(sql)
+    times = cursor.fetchall()
+
+    sql = """select distinct industry
+    from industry_avg
+    where time = %s
+    """
+
+    for t in times:
+        cursor.execute(sql, [t[0]])
+
+        result[t[0]] = cursor.fetchall()
+
+    return jsonify(result)
+
+
+@bp.route('/industry_avg')
+def industry_list():
+    """返回行业平均值信息"""
+
+    result = {
+        'error': '',
+        'info': ''
+    }
+
+    time = request.args.get('time')
+    industry = request.args.get('industry')
+
+    if time and industry:
+        cursor = get_db().cursor()
+
+        sql = """select * from industry_avg
+        where time=%s and industry=%s
+        """
+
+        cursor.execute(sql, [time, industry])
+        rows = cursor.fetchall()
+
+        info = {}
+        info['time'] = rows[0][0]
+        info['industry'] = rows[0][1]
+        info['source'] = rows[0][8]
+        info['indexs'] = []
+
+        for r in rows:
+            info['indexs'].append(r[2:8])
+
+        result['info'] = info
+    else:
+        result['error'] = 'Need parameter'
 
     return jsonify(result)
